@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Neurobionics glove – 3D concept model</title>
+<style>
+:root{--bg:#eceeea;--fg:#1b2420;--mut:#5b6862;--pn:rgba(255,255,255,.82);--ac:#0b7a6a;--ln:#c4ccc6;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111715;--fg:#e5ece8;--mut:#90a198;--pn:rgba(24,32,28,.84);--ac:#3fd1b8;--ln:#2d3a34}}
+:root[data-theme="dark"]{--bg:#111715;--fg:#e5ece8;--mut:#90a198;--pn:rgba(24,32,28,.84);--ac:#3fd1b8;--ln:#2d3a34}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+html,body{height:100%;margin:0}
+body{position:relative;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;overflow:hidden}
+#stage{position:absolute;inset:0}
+#labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.lb{position:absolute;left:0;top:0;font:11px/1 ui-monospace,Menlo,Consolas,monospace;padding:3px 6px;border:1px solid var(--ln);background:var(--pn);border-radius:3px;white-space:nowrap}
+.lb b{color:var(--ac);margin-right:4px}
+header{position:absolute;top:10px;left:14px;max-width:60%}
+h1{font:600 22px/1.1 "Iowan Old Style",Palatino,Georgia,serif;margin:0 0 3px}
+header p{margin:0;color:var(--mut);font-size:12px}
+#read{position:absolute;top:10px;right:12px;background:var(--pn);border:1px solid var(--ln);border-radius:4px;padding:8px 10px;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace}
+#read span{color:var(--ac);font-weight:700}
+footer{position:absolute;left:0;right:0;bottom:0;padding:10px 14px calc(10px + env(safe-area-inset-bottom,0px));background:var(--pn);border-top:1px solid var(--ln);display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;font-size:13px}
+footer label{display:flex;align-items:center;gap:5px;cursor:pointer}
+input[type=range]{width:160px;accent-color:var(--ac)}
+button{font:inherit;padding:3px 10px;border:1px solid var(--ln);background:transparent;color:var(--fg);border-radius:3px;cursor:pointer}
+small{color:var(--mut);flex-basis:100%;font-size:11px}
+</style></head>
+<body>
+<div id="stage"></div><div id="labels"></div>
+<header><h1>Neurobionics glove</h1><p>Concept model · drag to orbit, scroll or pinch to zoom</p></header>
+<aside id="read">Closure <span id="rc">0%</span><br>Index tendon pull <span id="rt">0.0 mm</span><br>MCP / PIP / DIP <span id="ra">0/0/0°</span></aside>
+<footer>
+<label>Grip closure <input id="sl" type="range" min="0" max="100" value="0"></label>
+<button id="pl">Pause</button>
+<label><input type="checkbox" data-l="hand" checked>Hand</label>
+<label><input type="checkbox" data-l="glove" checked>Glove</label>
+<label><input type="checkbox" data-l="tendon" checked>Tendons + Bowden</label>
+<label><input type="checkbox" data-l="emg" checked>EMG sleeve</label>
+<label><input type="checkbox" data-l="remote" checked>Remote unit + Pi</label>
+<label><input type="checkbox" id="lbt" checked>Labels</label>
+<small>Illustrative geometry (cm-scale, not validated CAD). Tendon pull is computed from the modelled path. TM-IDs refer to your means sheet.</small>
+</footer>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const stage=document.getElementById('stage'),LB=document.getElementById('labels');
+const R=new THREE.WebGLRenderer({antialias:true,alpha:true});R.setPixelRatio(Math.min(devicePixelRatio,2));stage.appendChild(R.domElement);
+const S=new THREE.Scene(),C=new THREE.PerspectiveCamera(40,1,1,600);
+S.add(new THREE.HemisphereLight(0xffffff,0x6a7a72,1.15));const d2=new THREE.DirectionalLight(0xffffff,.5);d2.position.set(-20,-40,20);S.add(d2);
+const dl=new THREE.DirectionalLight(0xffffff,.8);dl.position.set(20,40,30);S.add(dl);
+const M=(c,o={})=>new THREE.MeshStandardMaterial(Object.assign({color:c,roughness:.8,metalness:0},o));
+const skin=M(0xdba88a,{roughness:.6}),fab2=M(0x3a4541,{side:THREE.DoubleSide}),nail=M(0xe9c7b0,{roughness:.4}),fab=M(0x222a27,{side:THREE.DoubleSide}),gd=M(0xb4bdba,{roughness:.35}),amb=M(0xf2a900),
+ ele=M(0x16b39a),elo=M(0x7d908a),box=M(0x2b3833),red=M(0xd8382c),shc=M(0x0e1211),pcb=M(0x1f6b4a),
+ slv=M(0x3c8f86,{transparent:true,opacity:.3,side:THREE.DoubleSide});
+const lay={hand:[],glove:[],tendon:[],emg:[],remote:[]};
+const add=(m,k,p)=>{(p||S).add(m);lay[k].push(m);return m};
+const bx=(w,h,d,mat,x,y,z,k)=>{const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat);m.position.set(x,y,z);return add(m,k)};
+const cyl=(r1,r2,h,mat,open)=>{const m=new THREE.Mesh(new THREE.CylinderGeometry(r1,r2,h,24,1,!!open),mat);m.rotation.x=Math.PI/2;return m};
+// palm, forearm
+const ell=(sx,sy,sz,mat,x,y,z,k)=>{const m=new THREE.Mesh(new THREE.SphereGeometry(1,28,20),mat);m.scale.set(sx,sy,sz);m.position.set(x,y,z);return add(m,k)};
+const sph=(r,mat,x,y,z,k,p)=>{const m=new THREE.Mesh(new THREE.SphereGeometry(r,18,12),mat);m.position.set(x,y,z);return add(m,k,p)};
+ell(4.2,1.25,4.6,skin,0,0,-.8,'hand');ell(4.55,1.15,2.7,skin,0,.1,2.2,'hand');
+ell(4.4,.8,4.7,fab,0,.95,.2,'glove');
+[3.3,1.1,-1.1,-3.3].forEach(x=>sph(1.05,skin,x,.3,4.5,'hand'));
+const fa=add(cyl(2.7,3.5,23,skin),'hand');fa.position.z=-16.5;fa.scale.set(1.15,1,.85);
+// padded wrist brace, hook-and-loop strap, Bowden anchor + fittings, release latch
+const br=add(cyl(3.1,3.2,6,fab,true),'glove');br.position.z=-5.3;br.scale.set(1.15,1,.85);
+const bs=add(cyl(3.3,3.3,2.6,fab2,true),'glove');bs.position.z=-5.6;bs.scale.set(1.15,1,.85);
+[-8.3,-2.3].forEach(z=>{const r=new THREE.Mesh(new THREE.TorusGeometry(3.15,.3,10,32),fab);r.scale.set(1.15,.85,1);r.position.z=z;add(r,'glove')});
+bx(3.2,1,1.8,gd,0,-3.1,-7.4,'glove');
+[-1.1,-.4,.4,1.1].forEach(x=>{const f=cyl(.38,.38,1.4,gd);f.position.set(x,-3.1,-8.7);add(f,'glove')});
+const lt=add(cyl(.7,.7,1.4,red),'glove');lt.rotation.set(0,0,Math.PI/2);lt.position.set(4,0,-5.2);
+// thumb (fixed opposition), straps + printed support
+const th=new THREE.Group();th.position.set(4.6,-.6,-1);th.rotation.set(.45,-.6,0);add(th,'hand');
+sph(1,skin,0,0,0,'hand',th);
+const t1=cyl(.85,.98,3.6,skin);t1.position.z=1.8;add(t1,'hand',th);
+const tj=new THREE.Group();tj.position.z=3.6;tj.rotation.x=.35;th.add(tj);
+sph(.88,skin,0,0,0,'hand',tj);sph(.78,skin,0,0,3,'hand',tj);
+const t2=cyl(.78,.85,3,skin);t2.position.z=1.5;add(t2,'hand',tj);
+const ts=new THREE.Mesh(new THREE.BoxGeometry(1.3,.5,3.6),gd);ts.position.set(0,-1.3,1.8);add(ts,'glove',th);
+[.8,2.8].forEach(z=>{const s=cyl(1.12,1.12,.9,fab2,true);s.position.z=z;add(s,'glove',th)});
+// printed loop guide (rounded frame with tendon window), shared geometry
+function rr(w,h,r){const s=new THREE.Shape(),x=-w/2,y=-h/2;s.moveTo(x+r,y);s.lineTo(x+w-r,y);s.quadraticCurveTo(x+w,y,x+w,y+r);s.lineTo(x+w,y+h-r);s.quadraticCurveTo(x+w,y+h,x+w-r,y+h);s.lineTo(x+r,y+h);s.quadraticCurveTo(x,y+h,x,y+h-r);s.lineTo(x,y+r);s.quadraticCurveTo(x,y,x+r,y);return s}
+const sh=rr(1.2,1.5,.35);sh.holes.push(rr(.55,.6,.15));
+const GL=new THREE.ExtrudeGeometry(sh,{depth:.4,bevelEnabled:false,curveSegments:4});GL.rotateX(Math.PI/2);
+// fingers (index nearest thumb): tapered phalanges, joints, sleeves, straps, loops, nails
+const spec=[[3.3,[4.8,2.9,2.2],.88],[1.1,[5.2,3.2,2.3],.92],[-1.1,[4.9,3,2.2],.88],[-3.3,[4,2.3,1.9],.78]];
+const fingers=[];
+spec.forEach(([x,L,r])=>{
+ const root=new THREE.Group();root.position.set(x,.3,4.6);S.add(root);
+ const j=[],mk=[];let par=root;
+ L.forEach((l,i)=>{
+  const g=new THREE.Group();par.add(g);j.push(g);
+  const rp=r*(1-.06*i),rd=r*(1-.06*(i+1)),dz=i==2;
+  const a=cyl(rd,rp,l,skin);a.position.z=l/2;add(a,'hand',g);
+  sph(rp,skin,0,0,0,'hand',g);
+  if(dz){sph(rd,skin,0,0,l,'hand',g);const n=new THREE.Mesh(new THREE.SphereGeometry(.55,10,8),nail);n.scale.set(1,.28,1.5);n.position.set(0,rd*.92,l*.55);add(n,'hand',g)}
+  const b=cyl(rd+.2,rp+.2,l*(dz?.78:.62),fab,true);b.position.z=l*(dz?.5:.42);add(b,'glove',g);
+  const s=cyl(rp+.26,rp+.26,.5,fab2,true);s.position.z=l*(dz?.62:.22);add(s,'glove',g);
+  const zc=dz?l*.8:l*.5,p=new THREE.Mesh(GL,gd);p.position.set(0,-(rp+.02),zc);add(p,'glove',g);
+  const m=new THREE.Object3D();m.position.set(0,-(rp+.22),zc);g.add(m);mk.push(m);
+  const n2=new THREE.Object3D();n2.position.z=l;g.add(n2);par=n2;
+ });
+ const P=new THREE.Object3D();P.position.set(x,-1.45,2.5);S.add(P);
+ const W=new THREE.Object3D();W.position.set(x*.45,-3.1,-7.4);S.add(W);
+ const ts2=[0,1,2,3].map(()=>{const m=new THREE.Mesh(new THREE.CylinderGeometry(.08,.08,1,6),amb);return add(m,'tendon')});
+ fingers.push({j,pts:[W,P,...mk],ts:ts2,L0:0});
+});
+// EMG sleeve, 8 electrode sites (4 active + 4 expansion), front end
+const sl=add(cyl(3.4,3.4,9,slv,true),'emg');sl.position.z=-17;sl.scale.set(1.15,1,.85);
+for(let k=0;k<8;k++){const a=k*Math.PI/4,g=new THREE.CylinderGeometry(.7,.7,.3,16);g.rotateX(Math.PI/2);
+ const e=new THREE.Mesh(g,k%2?elo:ele);e.position.set(1.15*3.45*Math.cos(a),.85*3.45*Math.sin(a),-15.5);e.lookAt(0,0,-15.5);add(e,'emg')}
+bx(3.4,.9,2.6,box,0,3.55,-17.5,'emg');bx(1,.3,1,ele,0,4.1,-17.5,'emg');[-12.5,-21.5].forEach(z=>{const r=new THREE.Mesh(new THREE.TorusGeometry(3.45,.15,8,32),elo);r.scale.set(1.15,.85,1);r.position.z=z;add(r,'emg')});
+// Bowden sheaths to the remote unit
+const cv=new THREE.CatmullRomCurve3([[0,-3.3,-8],[1,-5.5,-14],[5,-7,-24],[9,-6,-32.2]].map(p=>new THREE.Vector3(...p)));
+[-.9,-.3,.3,.9].forEach(d=>{const m=new THREE.Mesh(new THREE.TubeGeometry(cv,30,.42,8),shc);m.position.x=d;add(m,'tendon')});
+// remote unit: servo spools, MCU, e-stop; Raspberry Pi 5 host
+bx(14,6,10,box,14,-6.5,-37,'remote');
+[9.5,12.2,14.9,17.6].forEach(x=>{const s=cyl(1.5,1.5,.9,gd);s.rotation.x=0;s.position.set(x,-3.1,-39.5);add(s,'remote')});
+bx(3,.3,2.4,pcb,13,-3.4,-35,'remote');bx(10,.05,.8,ele,14,-3.48,-32.8,'remote');for(let x=8.5;x<=19.5;x+=1.5)bx(.5,3,.1,shc,x,-6.8,-31.95,'remote');bx(8,5,.5,gd,14,-6.5,-42.2,'remote');bx(1.6,.3,1.6,box,13,-3.1,-35,'remote');
+const es=add(new THREE.Mesh(new THREE.CylinderGeometry(1.2,1.2,.8,20),red),'remote');es.position.set(18,-3.1,-34.8);
+bx(8.5,1.8,5.6,pcb,-12,-6.5,-37,'remote');bx(2.4,.4,2.4,gd,-10,-5.4,-37,'remote');bx(1.6,.5,3.4,box,-15.5,-5.5,-38,'remote');
+const dash=(a,b,c)=>{const l=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a),new THREE.Vector3(...b)]),new THREE.LineDashedMaterial({color:c,dashSize:.8,gapSize:.5}));l.computeLineDistances();add(l,'remote')};
+dash([0,4.2,-17.5],[-12,-5.4,-35],0x16b39a);dash([-8,-5.6,-37],[11.5,-3.4,-36],0x8fa099);
+// labels
+const V=(x,y,z)=>new THREE.Vector3(x,y,z);
+const labs=[['TM-13','Tendon guides + anchors',()=>fingers[0].pts[3].getWorldPosition(V())],['TM-14','Thumb opposition support',()=>V(5.2,-2.6,1.5)],
+['TM-16','Wrist brace + Bowden anchor',()=>V(0,-3.6,-7.4)],['TM-16','Mechanical quick-release',()=>V(4.6,0,-5.2)],
+['TM-07','Electrode sleeve (4+4 sites)',()=>V(4.3,1.5,-15.5)],['TM-01/05','EMG front end · BLE',()=>V(0,4.4,-17.5)],
+['TM-12','PTFE Bowden sheaths',()=>V(3.5,-6.8,-22)],['Remote','Servos + MCU',()=>V(12,-2.8,-37)],['Remote','E-stop',()=>V(18,-2.6,-34.8)],['Host','Raspberry Pi 5',()=>V(-12,-5.2,-37)]]
+.map(([id,t,f])=>{const d=document.createElement('div');d.className='lb';d.innerHTML='<b>'+id+'</b>'+t;LB.appendChild(d);return{d,f}});
+// orbit
+let th_=.9,ph=2,rad=90;const tg=V(3,-2,-18);
+const cvs=R.domElement,Pm=new Map();cvs.style.touchAction='none';
+cvs.addEventListener('pointerdown',e=>{cvs.setPointerCapture(e.pointerId);Pm.set(e.pointerId,[e.clientX,e.clientY])});
+cvs.addEventListener('pointermove',e=>{const o=Pm.get(e.pointerId);if(!o)return;
+ if(Pm.size==1){th_-=(e.clientX-o[0])*.008;ph=Math.min(3,Math.max(.2,ph-(e.clientY-o[1])*.008))}
+ else{const q=[...Pm.entries()].find(([k])=>k!=e.pointerId)[1],d0=Math.hypot(o[0]-q[0],o[1]-q[1]),d1=Math.hypot(e.clientX-q[0],e.clientY-q[1]);rad=Math.min(170,Math.max(25,rad*d0/d1))}
+ Pm.set(e.pointerId,[e.clientX,e.clientY])});
+['pointerup','pointercancel'].forEach(n=>cvs.addEventListener(n,e=>Pm.delete(e.pointerId)));
+cvs.addEventListener('wheel',e=>{e.preventDefault();rad=Math.min(170,Math.max(25,rad*(1+e.deltaY*.001)))},{passive:false});
+function size(){const w=stage.clientWidth,h=stage.clientHeight;R.setSize(w,h);C.aspect=w/h;C.updateProjectionMatrix()}
+addEventListener('resize',size);size();
+// UI
+const sld=document.getElementById('sl'),pl=document.getElementById('pl');let t=0,auto=true;
+sld.oninput=()=>{auto=false;pl.textContent='Play';t=sld.value/100};
+pl.onclick=()=>{auto=!auto;pl.textContent=auto?'Pause':'Play'};
+document.querySelectorAll('[data-l]').forEach(c=>c.onchange=()=>lay[c.dataset.l].forEach(m=>m.visible=c.checked));
+document.getElementById('lbt').onchange=e=>LB.style.display=e.target.checked?'':'none';
+const pose=()=>fingers.forEach(f=>{f.j[0].rotation.x=.95*t;f.j[1].rotation.x=1.35*t;f.j[2].rotation.x=.9*t});
+const up=V(0,1,0),A=V(),B=V();
+function tendons(){let tot=0;fingers.forEach((f,fi)=>{const p=f.pts.map(o=>o.getWorldPosition(V()));let len=0;
+ for(let k=0;k<4;k++){const d=B.copy(p[k+1]).sub(p[k]),l=d.length();len+=l;const m=f.ts[k];m.position.copy(p[k]).addScaledVector(d,.5);m.scale.set(1,l,1);m.quaternion.setFromUnitVectors(up,d.normalize())}
+ f.len=len;if(fi==0)tot=len});return tot}
+pose();S.updateMatrixWorld(true);fingers.forEach(f=>{tendons();f.L0=f.len});
+const rc=document.getElementById('rc'),rt=document.getElementById('rt'),ra=document.getElementById('ra');
+const t0=performance.now();
+(function frame(now){
+ if(auto){t=.5-.5*Math.cos((now-t0)/1000*1.1);sld.value=Math.round(t*100)}
+ pose();S.updateMatrixWorld(true);tendons();
+ rc.textContent=Math.round(t*100)+'%';rt.textContent=((fingers[0].L0-fingers[0].len)*10).toFixed(1)+' mm';
+ ra.textContent=[.95,1.35,.9].map(a=>Math.round(a*t*57.3)).join('/')+'°';
+ C.position.set(tg.x+rad*Math.sin(ph)*Math.sin(th_),tg.y+rad*Math.cos(ph),tg.z+rad*Math.sin(ph)*Math.cos(th_));C.lookAt(tg);C.updateMatrixWorld(true);
+ const w=stage.clientWidth,h=stage.clientHeight;
+ labs.forEach(l=>{const v=l.f().project(C);const off=v.z>1;l.d.style.visibility=off?'hidden':'visible';
+  l.d.style.transform='translate('+((v.x*.5+.5)*w)+'px,'+((-v.y*.5+.5)*h)+'px) translate(-50%,-130%)'});
+ R.render(S,C);requestAnimationFrame(frame)})(performance.now());
+</script></body></html>
